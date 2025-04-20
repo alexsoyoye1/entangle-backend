@@ -15,7 +15,7 @@ exports.healthCheck = (_req, res) => {
         </style>
       </head>
       <body>
-        <h1>✅ Entangle Backend is Running</h1>
+        <h1>✅ Entangle Backend is Running so smoothly</h1>
         <p>Last deployed at: <span class="timestamp">${now}</span></p>
         <p>This confirms your GitHub Actions auto‑deploy & restart worked.</p>
       </body>
