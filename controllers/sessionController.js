@@ -62,3 +62,65 @@ exports.startSession = async (req, res) => {
 
   res.json({ sessionId });
 };
+
+exports.joinSession = async (req, res) => {
+  const { sessionId } = req.params;
+  const { userId } = req.body;
+  if (!userId) {
+    return res.status(400).json({ error: "userId is required" });
+  }
+
+  // figure out next seat number
+  const { count, error: cntErr } = await supabase
+    .from("session_players")
+    .select("*", { count: "exact", head: true })
+    .eq("session_id", sessionId);
+  if (cntErr) {
+    console.error("Error counting players:", cntErr);
+    return res.status(500).json({ error: cntErr.message });
+  }
+  const seat = (count ?? 0) + 1;
+
+  // insert into session_players
+  const { error: joinErr } = await supabase
+    .from("session_players")
+    .insert([{ session_id: sessionId, player_id: userId, seat }]);
+  if (joinErr) {
+    console.error("Error joining session:", joinErr);
+    return res.status(500).json({ error: joinErr.message });
+  }
+
+  res.json({ sessionId, seat });
+};
+exports.leaveSession = async (req, res) => {
+  const { sessionId } = req.params;
+  const { userId } = req.body;
+  if (!userId) {
+    return res.status(400).json({ error: "userId is required" });
+  }
+
+  // 1) Remove the player from session_players
+  const { error: delErr } = await supabase
+    .from("session_players")
+    .delete()
+    .match({ session_id: sessionId, player_id: userId });
+  if (delErr) {
+    console.error("Error leaving session:", delErr);
+    return res.status(500).json({ error: delErr.message });
+  }
+
+  // 2) If no one remains in the session, clean up the session and related intents
+  const { count, error: cntErr } = await supabase
+    .from("session_players")
+    .select("*", { count: "exact", head: true })
+    .eq("session_id", sessionId);
+  if (cntErr) {
+    console.error("Error counting remaining players:", cntErr);
+    // not fatal—just warn
+  } else if ((count ?? 0) === 0) {
+    await supabase.from("intents").delete().eq("session_id", sessionId);
+    await supabase.from("sessions").delete().eq("id", sessionId);
+  }
+
+  res.json({ sessionId });
+};
