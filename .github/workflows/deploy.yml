@@ -1,0 +1,49 @@
+name: CI & Deploy Backend
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: "18"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test # remove or adjust if you don't have tests
+
+      - name: Zip project for deployment
+        run: zip -r deploy.zip . -x "*.git*" -x "node_modules/*"
+
+      - name: Deploy via FTP to cPanel
+        uses: SamKirkland/FTP-Deploy-Action@4.5.0
+        with:
+          server: ${{ secrets.CPANEL_HOST }}
+          username: ${{ secrets.CPANEL_USERNAME }}
+          password: ${{ secrets.CPANEL_PASSWORD }}
+          port: 21
+          local-dir: .
+          server-dir: ${{ secrets.CPANEL_PATH }}
+          exclude:
+            - .github/**
+            - node_modules/**
+
+      - name: SSH & Restart Node App
+        if: success()
+        env:
+          SSHPASS: ${{ secrets.CPANEL_PASSWORD }}
+        run: |
+          sshpass -p "$SSHPASS" ssh -o StrictHostKeyChecking=no \
+            ${{ secrets.CPANEL_USERNAME }}@${{ secrets.CPANEL_HOST }} \
+            "cd ${{ secrets.CPANEL_PATH }} && npm ci && pm2 restart server.js"
