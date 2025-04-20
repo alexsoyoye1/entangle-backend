@@ -1,7 +1,7 @@
-// entangle-backend/controllers/sessionController.js
-import { supabase } from "../services/supabaseClient.js";
+// controllers/sessionController.js
+const supabase = require("../services/supabaseClient");
 
-export const listSessions = async (_req, res) => {
+exports.listSessions = async (_req, res) => {
   const { data, error } = await supabase.from("sessions").select("*");
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);

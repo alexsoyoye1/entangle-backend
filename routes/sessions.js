@@ -1,7 +1,8 @@
-// entangle-backend/routes/sessions.js
-import express from "express";
-import { listSessions } from "../controllers/sessionController.js";
+// routes/sessions.js
+const express = require("express");
+const { listSessions } = require("../controllers/sessionController");
 
 const router = express.Router();
 router.get("/", listSessions);
-export default router;
+
+module.exports = router;

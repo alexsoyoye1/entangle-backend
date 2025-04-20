@@ -1,7 +1,4 @@
-// entangle-backend/routes/health.js
-import express from "express";
-import { healthCheck } from "../controllers/healthController.js";
-
-const router = express.Router();
+const router = require("express").Router();
+const { healthCheck } = require("../controllers/healthController");
 router.get("/", healthCheck);
-export default router;
+module.exports = router;
