@@ -3,6 +3,7 @@ const express = require("express");
 const {
   listSessions,
   createSession,
+  startSession,
 } = require("../controllers/sessionController");
 const router = express.Router();
 
@@ -11,5 +12,7 @@ router.get("/", listSessions);
 
 // POST /sessions      → create a new lobby session
 router.post("/", createSession);
+
+router.post("/:sessionId/start", startSession);
 
 module.exports = router;
