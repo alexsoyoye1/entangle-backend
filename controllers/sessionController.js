@@ -124,3 +124,55 @@ exports.leaveSession = async (req, res) => {
 
   res.json({ sessionId });
 };
+
+/**
+ * POST /sessions/:sessionId/end
+ * Body: { userId: string }
+ *
+ * Only the host (seat = 1) may call this. Deletes all related data
+ * (intents, session_players, sessions) and returns everyone to lobby.
+ */
+exports.endSession = async (req, res) => {
+  const { sessionId } = req.params;
+  const { userId } = req.body;
+  if (!userId) return res.status(400).json({ error: "userId required" });
+
+  // 1) Verify host: seat 1
+  const { data: hostRow, error: hostErr } = await supabase
+    .from("session_players")
+    .select("player_id")
+    .eq("session_id", sessionId)
+    .eq("seat", 1)
+    .single();
+  if (hostErr) return res.status(500).json({ error: hostErr.message });
+  if (!hostRow || hostRow.player_id !== userId) {
+    return res.status(403).json({ error: "Only the session host may end it." });
+  }
+
+  // 2) Delete intents
+  const { error: delIntentsErr } = await supabase
+    .from("intents")
+    .delete()
+    .eq("session_id", sessionId);
+  if (delIntentsErr) console.warn("Could not delete intents:", delIntentsErr);
+
+  // 3) Delete session_players
+  const { error: delPlayersErr } = await supabase
+    .from("session_players")
+    .delete()
+    .eq("session_id", sessionId);
+  if (delPlayersErr)
+    console.warn("Could not delete session_players:", delPlayersErr);
+
+  // 4) Delete session
+  const { error: delSessionErr } = await supabase
+    .from("sessions")
+    .delete()
+    .eq("id", sessionId);
+  if (delSessionErr) {
+    console.error("Error deleting session:", delSessionErr);
+    return res.status(500).json({ error: delSessionErr.message });
+  }
+
+  res.json({ success: true });
+};
