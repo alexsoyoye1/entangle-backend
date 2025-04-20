@@ -19,6 +19,7 @@ const supabase = createClient(
 const healthRoutes = require("./routes/health");
 const queueRoutes = require("./routes/queue");
 const sessionRoutes = require("./routes/sessions");
+const intentsRoutes = require("./routes/intents");
 
 const app = express();
 app.use(cors());
@@ -27,6 +28,7 @@ app.use(express.json());
 app.use("/", healthRoutes);
 app.use("/queue", queueRoutes);
 app.use("/sessions", sessionRoutes);
+app.use("/intents", intentsRoutes);
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
