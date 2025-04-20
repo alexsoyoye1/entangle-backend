@@ -1,4 +1,5 @@
 // controllers/sessionController.js
+
 const supabase = require("../services/supabaseClient");
 const TURN_DURATION = 60;
 
@@ -14,10 +15,12 @@ exports.createSession = async (req, res) => {
     now.getTime() + TURN_DURATION * 1000
   ).toISOString();
 
+  // Note: use 'waiting' here so your Flutter lobby (which filters on stage='waiting')
+  // will pick up newly created rooms.
   const { data, error } = await supabase
     .from("sessions")
     .insert({
-      stage: "lobby",
+      stage: "waiting",
       turn_index: 0,
       timer_expiry: timerExpiry,
       created_at: now.toISOString(),
@@ -48,13 +51,12 @@ exports.startSession = async (req, res) => {
       .json({ error: `Need at least ${MIN_PLAYERS} players` });
   }
 
-  // 2) Advance stage -> in_game, set timer_expiry
-  const TURN_DURATION = 60;
-  const timerExpiry = new Date(Date.now() + TURN_DURATION * 1000).toISOString();
+  // 2) Advance stage -> in_game, set new timer_expiry
+  const newExpiry = new Date(Date.now() + TURN_DURATION * 1000).toISOString();
 
   const { error: updErr } = await supabase
     .from("sessions")
-    .update({ stage: "in_game", timer_expiry: timerExpiry })
+    .update({ stage: "in_game", timer_expiry: newExpiry })
     .eq("id", sessionId);
   if (updErr) return res.status(500).json({ error: updErr.message });
 
