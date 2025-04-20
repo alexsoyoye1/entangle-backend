@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - main
-  workflow_dispatch: # optional, lets you run manually from Actions UI
+  workflow_dispatch:
 
 jobs:
   build-and-deploy:
@@ -28,7 +28,7 @@ jobs:
         run: zip -r deploy.zip . -x "*.git*" -x "node_modules/*"
 
       - name: Deploy via FTP to cPanel
-        uses: SamKirkland/FTP-Deploy-Action@4.5.0
+        uses: SamKirkland/FTP-Deploy-Action@v4.5.1
         with:
           server: ${{ secrets.CPANEL_HOST }}
           username: ${{ secrets.CPANEL_USERNAME }}
