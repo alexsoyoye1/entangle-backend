@@ -32,7 +32,7 @@ jobs:
           username: ${{ secrets.CPANEL_USERNAME }}
           password: ${{ secrets.CPANEL_PASSWORD }}
           port: 21
-          local-dir: .
+          local-dir: ./
           server-dir: ${{ secrets.CPANEL_PATH }}
           exclude: |
             .github/**
