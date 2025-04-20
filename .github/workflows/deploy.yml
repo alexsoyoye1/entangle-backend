@@ -9,9 +9,8 @@ on:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Node.js
@@ -19,13 +18,13 @@ jobs:
         with:
           node-version: "18"
 
-      - name: Install dependencies
+      - name: Install
         run: npm ci
 
-      - name: Zip project for deployment
+      - name: Zip for FTP
         run: zip -r deploy.zip . -x "*.git*" -x "node_modules/*"
 
-      - name: Deploy via FTP to cPanel
+      - name: FTP deploy
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
           server: ${{ secrets.CPANEL_HOST }}
@@ -38,11 +37,14 @@ jobs:
             .github/**
             node_modules/**
 
-      - name: SSH & Restart Node App
+      - name: Restart Node.js App via cPanel UAPI
         if: success()
         env:
-          SSHPASS: ${{ secrets.CPANEL_PASSWORD }}
+          CP_USER: ${{ secrets.CPANEL_USERNAME }}
+          CP_HOST: ${{ secrets.CPANEL_HOST }}
+          CP_PATH: ${{ secrets.CPANEL_PATH }}
+          CP_TOKEN: ${{ secrets.CPANEL_API_TOKEN }}
         run: |
-          sshpass -p "$SSHPASS" ssh -o StrictHostKeyChecking=no \
-            ${{ secrets.CPANEL_USERNAME }}@${{ secrets.CPANEL_HOST }} \
-            "cd ${{ secrets.CPANEL_PATH }} && npm ci && pm2 restart server.js"
+          curl -k \
+            -H "Authorization: cpanel ${CP_USER}:${CP_TOKEN}" \
+            "https://${CP_HOST}:2083/execute/NodeJSApp/restart_application?application=${CP_PATH}"
