@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch: # optional, lets you run manually from Actions UI
 
 jobs:
   build-and-deploy:
@@ -35,9 +36,9 @@ jobs:
           port: 21
           local-dir: .
           server-dir: ${{ secrets.CPANEL_PATH }}
-          exclude:
-            - .github/**
-            - node_modules/**
+          exclude: |
+            .github/**
+            node_modules/**
 
       - name: SSH & Restart Node App
         if: success()
