@@ -9,6 +9,7 @@ on:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -28,7 +29,7 @@ jobs:
         run: zip -r deploy.zip . -x "*.git*" -x "node_modules/*"
 
       - name: Deploy via FTP to cPanel
-        uses: SamKirkland/FTP-Deploy-Action@v4.5.1
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
           server: ${{ secrets.CPANEL_HOST }}
           username: ${{ secrets.CPANEL_USERNAME }}
