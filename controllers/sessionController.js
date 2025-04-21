@@ -62,6 +62,19 @@ exports.joinSession = async (req, res) => {
   const { userId } = req.body;
   if (!userId) return res.status(400).json({ error: "userId is required" });
 
+  // ✅ Check if user already in session
+  const { data: existing } = await supabase
+    .from("session_players")
+    .select("id")
+    .eq("session_id", sessionId)
+    .eq("player_id", userId)
+    .maybeSingle();
+
+  if (existing) {
+    return res.status(400).json({ error: "User already in session" });
+  }
+
+  // ✅ Fetch existing players with gender
   const { data: players, error: playersErr } = await supabase
     .from("session_players")
     .select("seat, player_id, profiles!inner(gender)")
@@ -71,10 +84,8 @@ exports.joinSession = async (req, res) => {
   if (playersErr) return res.status(500).json({ error: playersErr.message });
 
   const nextSeat = (players?.length ?? 0) + 1;
-  const hostGender = players[0]?.profiles?.gender;
-  const expectedGender =
-    nextSeat % 2 === 1 ? hostGender : hostGender === "male" ? "female" : "male";
 
+  // ✅ Fetch joining user's gender
   const { data: userProfile, error: userErr } = await supabase
     .from("profiles")
     .select("gender")
@@ -82,17 +93,36 @@ exports.joinSession = async (req, res) => {
     .single();
 
   if (userErr) return res.status(500).json({ error: userErr.message });
-  if (!userProfile || userProfile.gender !== expectedGender) {
-    return res
-      .status(400)
-      .json({ error: `Seat ${nextSeat} requires a ${expectedGender}` });
+  if (!userProfile) return res.status(400).json({ error: "Profile not found" });
+
+  // ✅ Only enforce gender alternation from seat 2 onward
+  if (nextSeat > 1) {
+    const hostGender = players[0]?.profiles?.gender;
+    if (!hostGender) {
+      return res.status(400).json({ error: "Host gender is undefined" });
+    }
+
+    const expectedGender =
+      nextSeat % 2 === 1
+        ? hostGender
+        : hostGender === "male"
+        ? "female"
+        : "male";
+
+    if (userProfile.gender !== expectedGender) {
+      return res.status(400).json({
+        error: `Seat ${nextSeat} requires a ${expectedGender} player`,
+      });
+    }
   }
 
+  // ✅ Insert user into session_players
   const { error: joinErr } = await supabase
     .from("session_players")
     .insert([{ session_id: sessionId, player_id: userId, seat: nextSeat }]);
 
   if (joinErr) return res.status(500).json({ error: joinErr.message });
+
   res.json({ sessionId, seat: nextSeat });
 };
 
