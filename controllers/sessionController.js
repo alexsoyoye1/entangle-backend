@@ -104,54 +104,63 @@ exports.joinSession = async (req, res) => {
   if (!userId) return res.status(400).json({ error: "userId is required" });
 
   try {
-    // 1) Who is the host?
+    // 1) Fetch session quotas (game_size, max_females, max_males)
+    const { data: session, error: sessErr } = await supabase
+      .from("sessions")
+      .select("game_size, max_females, max_males")
+      .eq("id", sessionId)
+      .single();
+    if (sessErr) throw sessErr;
+
+    // 2) Count & list existing players (we get both data & count)
+    const {
+      data: currentPlayers = [],
+      count,
+      error: curErr,
+    } = await supabase
+      .from("session_players")
+      .select("player_id", { count: "exact" })
+      .eq("session_id", sessionId);
+    if (curErr) throw curErr;
+
+    // 3) Is there still room?
+    if ((count ?? 0) >= session.game_size) {
+      return res.status(400).json({ error: "Session is full" });
+    }
+
+    // 4) Look up host gender
     const { data: hostSeat, error: hostErr } = await supabase
       .from("session_players")
-      .select("player_id, seat")
+      .select("player_id")
       .eq("session_id", sessionId)
       .eq("seat", 1)
       .single();
     if (hostErr) throw hostErr;
-
-    // 2) Fetch host’s gender
     const { data: hostProfile, error: profErr } = await supabase
       .from("profiles")
       .select("gender")
       .eq("id", hostSeat.player_id)
       .single();
     if (profErr) throw profErr;
-    const hostGender = hostProfile.gender; // "male" or "female"
+    const hostGender = hostProfile.gender;
 
-    // 3) Load current players in the room
-    const {
-      data: currentPlayers,
-      count,
-      error: curErr,
-    } = await supabase
-      .from("session_players")
-      .select("player_id", { count: "exact", head: true })
-      .eq("session_id", sessionId);
-    if (curErr) throw curErr;
-
-    // 4) Count genders
+    // 5) Tally current gender counts
+    const ids = currentPlayers.map((p) => p.player_id);
     let maleCount = 0,
       femaleCount = 0;
-    if (count > 0) {
-      // fetch all their genders in one go
-      const ids = currentPlayers.map((p) => p.player_id);
+    if (ids.length) {
       const { data: profiles, error: pErr } = await supabase
         .from("profiles")
         .select("id, gender")
         .in("id", ids);
       if (pErr) throw pErr;
-
       profiles.forEach((p) => {
         if (p.gender === "male") maleCount++;
         else if (p.gender === "female") femaleCount++;
       });
     }
 
-    // 5) Fetch joining user’s gender
+    // 6) Fetch joiner’s gender
     const { data: me, error: meErr } = await supabase
       .from("profiles")
       .select("gender")
@@ -160,20 +169,16 @@ exports.joinSession = async (req, res) => {
     if (meErr) throw meErr;
     const myGender = me.gender;
 
-    // 6) Apply the same host‑based quotas you already have
-    const maxFemales =
-      hostGender === "female" ? session.max_females : session.max_females;
-    const maxMales =
-      hostGender === "male" ? session.max_males : session.max_males;
-    if (myGender === "female" && femaleCount >= maxFemales) {
+    // 7) Enforce host‑based quotas
+    if (myGender === "female" && femaleCount >= session.max_females) {
       return res.status(400).json({ error: "Max number of females reached" });
     }
-    if (myGender === "male" && maleCount >= maxMales) {
+    if (myGender === "male" && maleCount >= session.max_males) {
       return res.status(400).json({ error: "Max number of males reached" });
     }
 
-    // 7) Everything OK → seat them
-    const nextSeat = count + 1;
+    // 8) Seat the player
+    const nextSeat = (count ?? 0) + 1;
     const { error: joinErr } = await supabase
       .from("session_players")
       .insert([{ session_id: sessionId, player_id: userId, seat: nextSeat }]);
@@ -182,7 +187,6 @@ exports.joinSession = async (req, res) => {
     res.json({ sessionId, seat: nextSeat });
   } catch (err) {
     console.error("joinSession error:", err);
-    // If it's a Supabase error it will have .message
     return res.status(500).json({ error: err.message || "Unknown error" });
   }
 };
