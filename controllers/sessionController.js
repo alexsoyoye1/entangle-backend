@@ -98,68 +98,93 @@ exports.startSession = async (req, res) => {
   res.json({ sessionId });
 };
 
-// Join session (enforce total cap & gender quotas)
 exports.joinSession = async (req, res) => {
   const { sessionId } = req.params;
   const { userId } = req.body;
   if (!userId) return res.status(400).json({ error: "userId is required" });
 
-  // A) Fetch session quotas
-  const { data: session, error: sErr } = await supabase
-    .from("sessions")
-    .select("game_size, max_females, max_males")
-    .eq("id", sessionId)
-    .single();
-  if (sErr) return res.status(500).json({ error: sErr.message });
+  try {
+    // 1) Who is the host?
+    const { data: hostSeat, error: hostErr } = await supabase
+      .from("session_players")
+      .select("player_id, seat")
+      .eq("session_id", sessionId)
+      .eq("seat", 1)
+      .single();
+    if (hostErr) throw hostErr;
 
-  // B) Count current seats & genders
-  const {
-    data: current,
-    count,
-    error: curErr,
-  } = await supabase
-    .from("session_players")
-    .select("player_id, profiles!inner(gender)", { count: "exact" })
-    .eq("session_id", sessionId);
-  if (curErr) return res.status(500).json({ error: curErr.message });
+    // 2) Fetch host’s gender
+    const { data: hostProfile, error: profErr } = await supabase
+      .from("profiles")
+      .select("gender")
+      .eq("id", hostSeat.player_id)
+      .single();
+    if (profErr) throw profErr;
+    const hostGender = hostProfile.gender; // "male" or "female"
 
-  if ((count ?? 0) >= session.game_size) {
-    return res.status(400).json({ error: "Session is full" });
+    // 3) Load current players in the room
+    const {
+      data: currentPlayers,
+      count,
+      error: curErr,
+    } = await supabase
+      .from("session_players")
+      .select("player_id", { count: "exact", head: true })
+      .eq("session_id", sessionId);
+    if (curErr) throw curErr;
+
+    // 4) Count genders
+    let maleCount = 0,
+      femaleCount = 0;
+    if (count > 0) {
+      // fetch all their genders in one go
+      const ids = currentPlayers.map((p) => p.player_id);
+      const { data: profiles, error: pErr } = await supabase
+        .from("profiles")
+        .select("id, gender")
+        .in("id", ids);
+      if (pErr) throw pErr;
+
+      profiles.forEach((p) => {
+        if (p.gender === "male") maleCount++;
+        else if (p.gender === "female") femaleCount++;
+      });
+    }
+
+    // 5) Fetch joining user’s gender
+    const { data: me, error: meErr } = await supabase
+      .from("profiles")
+      .select("gender")
+      .eq("id", userId)
+      .single();
+    if (meErr) throw meErr;
+    const myGender = me.gender;
+
+    // 6) Apply the same host‑based quotas you already have
+    const maxFemales =
+      hostGender === "female" ? session.max_females : session.max_females;
+    const maxMales =
+      hostGender === "male" ? session.max_males : session.max_males;
+    if (myGender === "female" && femaleCount >= maxFemales) {
+      return res.status(400).json({ error: "Max number of females reached" });
+    }
+    if (myGender === "male" && maleCount >= maxMales) {
+      return res.status(400).json({ error: "Max number of males reached" });
+    }
+
+    // 7) Everything OK → seat them
+    const nextSeat = count + 1;
+    const { error: joinErr } = await supabase
+      .from("session_players")
+      .insert([{ session_id: sessionId, player_id: userId, seat: nextSeat }]);
+    if (joinErr) throw joinErr;
+
+    res.json({ sessionId, seat: nextSeat });
+  } catch (err) {
+    console.error("joinSession error:", err);
+    // If it's a Supabase error it will have .message
+    return res.status(500).json({ error: err.message || "Unknown error" });
   }
-
-  let maleCount = 0,
-    femaleCount = 0;
-  current.forEach((p) => {
-    if (p.profiles.gender === "male") maleCount++;
-    else if (p.profiles.gender === "female") femaleCount++;
-  });
-
-  // C) Lookup joiner’s gender
-  const { data: me, error: meErr } = await supabase
-    .from("profiles")
-    .select("gender")
-    .eq("id", userId)
-    .single();
-  if (meErr) return res.status(500).json({ error: meErr.message });
-  const myGender = me.gender;
-
-  // D) Enforce gender quota
-  if (myGender === "female" && femaleCount >= session.max_females) {
-    return res.status(400).json({ error: "Max number of females reached" });
-  }
-  if (myGender === "male" && maleCount >= session.max_males) {
-    return res.status(400).json({ error: "Max number of males reached" });
-  }
-
-  // E) Assign next seat number
-  const nextSeat = (current?.length ?? 0) + 1;
-
-  const { error: joinErr } = await supabase
-    .from("session_players")
-    .insert([{ session_id: sessionId, player_id: userId, seat: nextSeat }]);
-  if (joinErr) return res.status(500).json({ error: joinErr.message });
-
-  res.json({ sessionId, seat: nextSeat });
 };
 
 // Leave session
