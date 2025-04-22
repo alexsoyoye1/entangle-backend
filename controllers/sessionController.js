@@ -104,7 +104,19 @@ exports.joinSession = async (req, res) => {
   if (!userId) return res.status(400).json({ error: "userId is required" });
 
   try {
-    // 1) Fetch session quotas (game_size, max_females, max_males)
+    // A) If already seated, just return current seat
+    const { data: existing, error: exErr } = await supabase
+      .from("session_players")
+      .select("seat")
+      .eq("session_id", sessionId)
+      .eq("player_id", userId)
+      .maybeSingle();
+    if (exErr) throw exErr;
+    if (existing) {
+      return res.json({ sessionId, seat: existing.seat });
+    }
+
+    // B) Fetch session quotas
     const { data: session, error: sessErr } = await supabase
       .from("sessions")
       .select("game_size, max_females, max_males")
@@ -112,7 +124,7 @@ exports.joinSession = async (req, res) => {
       .single();
     if (sessErr) throw sessErr;
 
-    // 2) Count & list existing players (we get both data & count)
+    // C) Count & list existing players
     const {
       data: currentPlayers = [],
       count,
@@ -123,12 +135,12 @@ exports.joinSession = async (req, res) => {
       .eq("session_id", sessionId);
     if (curErr) throw curErr;
 
-    // 3) Is there still room?
+    // D) Check game size
     if ((count ?? 0) >= session.game_size) {
       return res.status(400).json({ error: "Session is full" });
     }
 
-    // 4) Look up host gender
+    // E) Fetch host gender
     const { data: hostSeat, error: hostErr } = await supabase
       .from("session_players")
       .select("player_id")
@@ -144,15 +156,17 @@ exports.joinSession = async (req, res) => {
     if (profErr) throw profErr;
     const hostGender = hostProfile.gender;
 
-    // 5) Tally current gender counts
-    const ids = currentPlayers.map((p) => p.player_id);
+    // F) Tally current gender counts
     let maleCount = 0,
       femaleCount = 0;
-    if (ids.length) {
+    if (currentPlayers.length) {
       const { data: profiles, error: pErr } = await supabase
         .from("profiles")
         .select("id, gender")
-        .in("id", ids);
+        .in(
+          "id",
+          currentPlayers.map((p) => p.player_id)
+        );
       if (pErr) throw pErr;
       profiles.forEach((p) => {
         if (p.gender === "male") maleCount++;
@@ -160,7 +174,7 @@ exports.joinSession = async (req, res) => {
       });
     }
 
-    // 6) Fetch joiner’s gender
+    // G) Lookup joiner’s gender
     const { data: me, error: meErr } = await supabase
       .from("profiles")
       .select("gender")
@@ -169,7 +183,7 @@ exports.joinSession = async (req, res) => {
     if (meErr) throw meErr;
     const myGender = me.gender;
 
-    // 7) Enforce host‑based quotas
+    // H) Enforce gender quotas
     if (myGender === "female" && femaleCount >= session.max_females) {
       return res.status(400).json({ error: "Max number of females reached" });
     }
@@ -177,14 +191,14 @@ exports.joinSession = async (req, res) => {
       return res.status(400).json({ error: "Max number of males reached" });
     }
 
-    // 8) Seat the player
+    // I) Seat new player
     const nextSeat = (count ?? 0) + 1;
     const { error: joinErr } = await supabase
       .from("session_players")
       .insert([{ session_id: sessionId, player_id: userId, seat: nextSeat }]);
     if (joinErr) throw joinErr;
 
-    res.json({ sessionId, seat: nextSeat });
+    return res.json({ sessionId, seat: nextSeat });
   } catch (err) {
     console.error("joinSession error:", err);
     return res.status(500).json({ error: err.message || "Unknown error" });
