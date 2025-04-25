@@ -5,7 +5,7 @@ const {
   listSessions,
   createSession,
   joinSession,
-  leaveSession, // ← import it
+  leaveSession,
   startSession,
   endSession,
 } = require("../controllers/sessionController");
