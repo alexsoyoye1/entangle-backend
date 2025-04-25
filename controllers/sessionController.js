@@ -101,80 +101,104 @@ exports.startSession = async (req, res) => {
 exports.joinSession = async (req, res) => {
   const { sessionId } = req.params;
   const { userId } = req.body;
-  if (!userId) return res.status(400).json({ error: "userId is required" });
+
+  if (!userId) {
+    return res.status(400).json({ error: "userId is required" });
+  }
 
   try {
-    // A) If already seated, just return current seat
+    // 1) Load session info (stage + quotas)
+    const { data: session, error: sessErr } = await supabase
+      .from("sessions")
+      .select("stage, game_size, max_females, max_males")
+      .eq("id", sessionId)
+      .single();
+    if (sessErr) throw sessErr;
+
+    // 2) If the user already has a row, return it
     const { data: existing, error: exErr } = await supabase
       .from("session_players")
-      .select("seat")
+      .select("seat, is_active")
       .eq("session_id", sessionId)
       .eq("player_id", userId)
       .maybeSingle();
     if (exErr) throw exErr;
     if (existing) {
-      return res.json({ sessionId, seat: existing.seat });
+      return res.json({
+        sessionId,
+        seat: existing.seat,
+        isActive: existing.is_active,
+      });
     }
 
-    // B) Fetch session quotas
-    const { data: session, error: sessErr } = await supabase
-      .from("sessions")
-      .select("game_size, max_females, max_males")
-      .eq("id", sessionId)
-      .single();
-    if (sessErr) throw sessErr;
+    // 3) If game not in "waiting" → become spectator
+    if (session.stage !== "waiting") {
+      const { error: specErr } = await supabase.from("session_players").insert([
+        {
+          session_id: sessionId,
+          player_id: userId,
+          seat: null,
+          is_active: false,
+        },
+      ]);
+      if (specErr) throw specErr;
+      return res.json({ sessionId, role: "spectator" });
+    }
 
-    // C) Count & list existing players
-    const {
-      data: currentPlayers = [],
-      count,
-      error: curErr,
-    } = await supabase
+    // 4) Count active players (only those with is_active = true)
+    const { count: activeCount, error: cntErr } = await supabase
       .from("session_players")
-      .select("player_id", { count: "exact" })
-      .eq("session_id", sessionId);
-    if (curErr) throw curErr;
+      .select("*", { count: "exact", head: true })
+      .eq("session_id", sessionId)
+      .eq("is_active", true);
+    if (cntErr) throw cntErr;
 
-    // D) Check game size
-    if ((count ?? 0) >= session.game_size) {
+    // 5) Enforce game_size
+    if ((activeCount ?? 0) >= session.game_size) {
       return res.status(400).json({ error: "Session is full" });
     }
 
-    // E) Fetch host gender
-    const { data: hostSeat, error: hostErr } = await supabase
+    // 6) Fetch current active player IDs
+    const { data: rows, error: rpErr } = await supabase
+      .from("session_players")
+      .select("player_id")
+      .eq("session_id", sessionId)
+      .eq("is_active", true);
+    if (rpErr) throw rpErr;
+    const currentIds = rows.map((r) => r.player_id);
+
+    // 7) Tally genders among those active players
+    let maleCount = 0,
+      femaleCount = 0;
+    if (currentIds.length) {
+      const { data: profiles, error: pErr } = await supabase
+        .from("profiles")
+        .select("gender")
+        .in("id", currentIds);
+      if (pErr) throw pErr;
+      for (const p of profiles) {
+        if (p.gender === "male") maleCount++;
+        else if (p.gender === "female") femaleCount++;
+      }
+    }
+
+    // 8) Determine host gender (seat 1)
+    const { data: hostRow, error: hErr } = await supabase
       .from("session_players")
       .select("player_id")
       .eq("session_id", sessionId)
       .eq("seat", 1)
       .single();
-    if (hostErr) throw hostErr;
-    const { data: hostProfile, error: profErr } = await supabase
+    if (hErr) throw hErr;
+    const { data: hostProf, error: hpErr } = await supabase
       .from("profiles")
       .select("gender")
-      .eq("id", hostSeat.player_id)
+      .eq("id", hostRow.player_id)
       .single();
-    if (profErr) throw profErr;
-    const hostGender = hostProfile.gender;
+    if (hpErr) throw hpErr;
+    const hostGender = hostProf.gender; // "male" or "female"
 
-    // F) Tally current gender counts
-    let maleCount = 0,
-      femaleCount = 0;
-    if (currentPlayers.length) {
-      const { data: profiles, error: pErr } = await supabase
-        .from("profiles")
-        .select("id, gender")
-        .in(
-          "id",
-          currentPlayers.map((p) => p.player_id)
-        );
-      if (pErr) throw pErr;
-      profiles.forEach((p) => {
-        if (p.gender === "male") maleCount++;
-        else if (p.gender === "female") femaleCount++;
-      });
-    }
-
-    // G) Lookup joiner’s gender
+    // 9) Lookup joiner’s gender
     const { data: me, error: meErr } = await supabase
       .from("profiles")
       .select("gender")
@@ -183,7 +207,7 @@ exports.joinSession = async (req, res) => {
     if (meErr) throw meErr;
     const myGender = me.gender;
 
-    // H) Enforce gender quotas
+    // 10) Enforce gender quotas
     if (myGender === "female" && femaleCount >= session.max_females) {
       return res.status(400).json({ error: "Max number of females reached" });
     }
@@ -191,14 +215,19 @@ exports.joinSession = async (req, res) => {
       return res.status(400).json({ error: "Max number of males reached" });
     }
 
-    // I) Seat new player
-    const nextSeat = (count ?? 0) + 1;
-    const { error: joinErr } = await supabase
-      .from("session_players")
-      .insert([{ session_id: sessionId, player_id: userId, seat: nextSeat }]);
+    // 11) All good → seat the new player
+    const nextSeat = (activeCount ?? 0) + 1;
+    const { error: joinErr } = await supabase.from("session_players").insert([
+      {
+        session_id: sessionId,
+        player_id: userId,
+        seat: nextSeat,
+        is_active: true,
+      },
+    ]);
     if (joinErr) throw joinErr;
 
-    return res.json({ sessionId, seat: nextSeat });
+    return res.json({ sessionId, seat: nextSeat, isActive: true });
   } catch (err) {
     console.error("joinSession error:", err);
     return res.status(500).json({ error: err.message || "Unknown error" });
