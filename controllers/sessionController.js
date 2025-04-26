@@ -76,7 +76,7 @@ exports.createSession = async (req, res) => {
 exports.startSession = async (req, res) => {
   const { sessionId } = req.params;
 
-  // 1️⃣ Make sure we have enough players
+  // 1️⃣ Make sure we have enough players in the room
   const { count, error: cntErr } = await supabase
     .from("session_players")
     .select("*", { count: "exact", head: true })
@@ -91,12 +91,39 @@ exports.startSession = async (req, res) => {
       .json({ error: `Need at least ${MIN_PLAYERS} players to start` });
   }
 
-  // 2️⃣ Flip stage to "seating" (Phase 1) – no timer yet
+  // 2️⃣ Look up the host ID for this session
+  const { data: sessionRow, error: hostErr } = await supabase
+    .from("sessions")
+    .select("host_id")
+    .eq("id", sessionId)
+    .single();
+
+  if (hostErr) return res.status(500).json({ error: hostErr.message });
+
+  const hostId = sessionRow.host_id;
+
+  // 3️⃣ Wipe seats for everyone *except* the host
+  const { error: wipeErr } = await supabase
+    .from("session_players")
+    .update({ seat: null })
+    .eq("session_id", sessionId)
+    .neq("player_id", hostId);
+
+  if (wipeErr) return res.status(500).json({ error: wipeErr.message });
+
+  // 4️⃣ Ensure host sits in Seat 1
+  await supabase
+    .from("session_players")
+    .update({ seat: 1 })
+    .eq("session_id", sessionId)
+    .eq("player_id", hostId);
+
+  // 5️⃣ Flip stage to "seating" (Phase 1) – no timer yet
   const { error: updErr } = await supabase
     .from("sessions")
     .update({
-      stage: "seating", // <-- CHANGED
-      timer_expiry: null, //   (optional) don’t start turn timer yet
+      stage: "seating",
+      timer_expiry: null,
     })
     .eq("id", sessionId);
 
