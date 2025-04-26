@@ -22,7 +22,7 @@ async function getSeatingState(sessionId) {
         seat,
         last_picked_by,
         last_picked_target,
-        profiles (
+        profiles!fk_sp_profiles(
           username,
           avatar_url,
           gender
