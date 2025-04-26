@@ -38,9 +38,9 @@ async function getSeatingState(sessionId) {
   for (const r of rows) {
     const p = {
       playerId: r.player_id,
-      username: r.profiles.username ?? "", // never null
-      avatar_url: r.profiles.avatar_url ?? "", // never null
-      gender: r.profiles.gender ?? "", // never null
+      username: r.profiles.username,
+      avatar_url: r.profiles.avatar_url,
+      gender: r.profiles.gender,
       seat: r.seat,
       lastPickedBy: r.last_picked_by,
       lastPickedTarget: r.last_picked_target,
