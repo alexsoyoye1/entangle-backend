@@ -72,13 +72,16 @@ exports.createSession = async (req, res) => {
 };
 
 // Start the game once enough have joined (min 5)
+
 exports.startSession = async (req, res) => {
   const { sessionId } = req.params;
 
+  // 1️⃣ Make sure we have enough players
   const { count, error: cntErr } = await supabase
     .from("session_players")
     .select("*", { count: "exact", head: true })
     .eq("session_id", sessionId);
+
   if (cntErr) return res.status(500).json({ error: cntErr.message });
 
   const MIN_PLAYERS = 5;
@@ -88,11 +91,15 @@ exports.startSession = async (req, res) => {
       .json({ error: `Need at least ${MIN_PLAYERS} players to start` });
   }
 
-  const newExpiry = new Date(Date.now() + TURN_DURATION * 1000).toISOString();
+  // 2️⃣ Flip stage to "seating" (Phase 1) – no timer yet
   const { error: updErr } = await supabase
     .from("sessions")
-    .update({ stage: "in_game", timer_expiry: newExpiry })
+    .update({
+      stage: "seating", // <-- CHANGED
+      timer_expiry: null, //   (optional) don’t start turn timer yet
+    })
     .eq("id", sessionId);
+
   if (updErr) return res.status(500).json({ error: updErr.message });
 
   res.json({ sessionId });

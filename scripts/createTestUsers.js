@@ -9,8 +9,8 @@ const supabase = createClient(
 );
 
 async function createTestUsers() {
-  const emails = ["dom@email.com"];
-  const password = "dom123";
+  const emails = ["test1@email.com"];
+  const password = "test123";
 
   for (const email of emails) {
     // Using the Admin API to create and auto-confirm users
