@@ -38,9 +38,9 @@ async function getSeatingState(sessionId) {
   for (const r of rows) {
     const p = {
       playerId: r.player_id,
-      username: r.profiles.username,
-      avatar_url: r.profiles.avatar_url,
-      gender: r.profiles.gender,
+      username: r.profiles.username ?? "", // never null
+      avatar_url: r.profiles.avatar_url ?? "", // never null
+      gender: r.profiles.gender ?? "", // never null
       seat: r.seat,
       lastPickedBy: r.last_picked_by,
       lastPickedTarget: r.last_picked_target,
@@ -51,6 +51,8 @@ async function getSeatingState(sessionId) {
 
   // 3) Sort the seated by seat number ascending
   seated.sort((a, b) => a.seat - b.seat);
+
+  console.log("DEBUG seating rows:", JSON.stringify(rows, null, 2));
 
   return {
     seated,
