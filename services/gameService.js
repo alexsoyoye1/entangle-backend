@@ -2,6 +2,8 @@
 // Pure game logic and DB interaction for seating, turns, conflicts, eliminations, and final proposals.
 
 const supabase = require("../services/supabaseClient");
+
+const TURN_DURATION = 60; // seconds
 /**
  * PHASE 1: Fetch current seating and pool state
  *
@@ -109,9 +111,7 @@ async function pickSeatPhase1(sessionId, pickerId, targetId) {
       .match({ session_id: sessionId, player_id: pickerId }),
   ];
   const [{ error: err1 }, { error: err2 }] = await Promise.all(updates);
-  if (err1 || err2) {
-    throw err1 || err2;
-  }
+  if (err1 || err2) throw err1 || err2;
 
   // 6) If no one left in pool → seating is done
   if (pool.length === 1) {
@@ -121,14 +121,20 @@ async function pickSeatPhase1(sessionId, pickerId, targetId) {
       .update({ has_safety: true })
       .eq("session_id", sessionId);
 
-    //  • bump session.stage → in_game
+    //  • bump session.stage → in_game and start turn-timer
+    const expiry = new Date(Date.now() + TURN_DURATION * 1000).toISOString();
+
     await supabase
       .from("sessions")
-      .update({ stage: "in_game", turn_index: 0 })
+      .update({
+        stage: "in_game",
+        turn_index: 0,
+        timer_expiry: expiry, // ← NEW
+      })
       .eq("id", sessionId);
   }
 
-  // 7) Return the new seating state
+  // 7) Return the new seating state (or final state if finished)
   return getSeatingState(sessionId);
 }
 
